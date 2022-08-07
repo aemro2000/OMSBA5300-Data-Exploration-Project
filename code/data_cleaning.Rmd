@@ -1,0 +1,110 @@
+---
+title: "data_cleaning"
+author: "Aemro Chanie"
+date: "2022-08-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### Loading necessary libraries and packages for data processing 
+```{r Libraries}
+library(car)
+library(dplyr)
+library(fixest)
+library(jtools)
+library(lubridate)
+library(purrr)
+library(tidyr)
+library(tidyverse)
+library(vtable)
+```
+
+### Loadind the data needed for analysis 
+
+```{r loading data, echo=FALSE}
+
+trends_files <- list.files(path = "../raw_data",pattern = 'trends_up_to', full.names = TRUE) %>%
+  map_df(read_csv) %>%
+  bind_rows()
+scorecard_df <- read.csv("../raw_data/Most+Recent+Cohorts+(Scorecard+Elements).csv")
+id_name_link <- read_csv("../raw_data/id_name_link.csv")
+```
+
+```{r Removing duplicates}
+# Removing duplicates from id_name_link file
+id_name_link <- id_name_link %>%
+  group_by(schname) %>%
+  mutate(N = n()) %>%
+  filter(N == 1) %>% 
+  select(-N)
+
+```
+
+```{r Index per month}
+trends_df <- trends_files %>%
+  mutate(month = str_sub(monthorweek, 1, 7)) %>%
+  select(schname, keyword, index, month) %>%
+  group_by(schname, keyword, month) %>%
+  summarise(monthTotal = sum(index))
+```
+
+```{r Binary SC variable for implementation}
+trends_df <- trends_df %>%
+  mutate(month = ym(month)) %>%
+  mutate(after_2015 = month > ym('2015-09'))
+```
+
+```{r Seasonal categorical variable}
+trends_df <- trends_df %>%
+  mutate(Month = month(month)) %>%
+  mutate(Season = case_when(Month %in% c(12,1,2) ~ 'Winter',
+                            Month %in% c(3,4,5) ~ 'Spring', 
+                            Month %in% c(6,7,8) ~ 'Summer',
+                            Month %in% c(9,10,11) ~ 'Fall'))
+```
+
+```{r Standardizing the index}
+trends_df <- trends_df %>% na.omit()
+trends_df <- trends_df %>%
+  group_by(schname, keyword) %>%
+  mutate(index_std = (monthTotal - mean(monthTotal))/sd(monthTotal))
+index_std_plot <- ggplot(trends_df, aes(x=index_std))+geom_density()
+index_std_plot
+```
+
+```{r Filtering scorecard data}
+scorecard_df<- rename(scorecard_df, unitid = 'UNITID', 
+                  opeid = 'OPEID', 
+                  MED_EARNINGS = "md_earn_wne_p10.REPORTED.EARNINGS")
+scorecard_df <- scorecard_df %>% select(unitid, opeid, STABBR, PREDDEG,
+                              LOCALE, CONTROL, HBCU, MENONLY,
+                              WOMENONLY, PBI, HSI,
+                              MED_EARNINGS)
+scorecard_df <- scorecard_df %>%
+  filter(PREDDEG == 3)%>%
+  filter(MED_EARNINGS != "PrivacySuppressed" & MED_EARNINGS != "NULL")
+scorecard_df$LOCALE <- as.numeric(scorecard_df$LOCALE)
+scorecard_df$HBCU <- as.numeric(scorecard_df$HBCU)
+scorecard_df$MENONLY <- as.numeric(scorecard_df$MENONLY)
+scorecard_df$WOMENONLY <- as.numeric(scorecard_df$WOMENONLY)
+scorecard_df$PBI <- as.numeric(scorecard_df$PBI)
+scorecard_df$HSI <- as.numeric(scorecard_df$HSI)
+scorecard_df$MED_EARNINGS <- as.numeric(scorecard_df$MED_EARNINGS)
+vtable(scorecard_df)
+```
+
+```{r Joining data}
+id_trend_df <- left_join(id_name_link, trends_df, by = 'schname')
+clean_df <- inner_join(scorecard_df, id_trend_df, by = c('unitid', 'opeid'))
+```
+
+```{r saving the clean data }
+
+# Saving the clean data for further analysis 
+write_csv(clean_df, file = "../raw_data/clean_df.csv")
+```
+
