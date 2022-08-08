@@ -87,6 +87,11 @@ scorecard_df <- scorecard_df %>% select(unitid, opeid, STABBR, PREDDEG,
 scorecard_df <- scorecard_df %>%
   filter(PREDDEG == 3)%>%
   filter(MED_EARNINGS != "PrivacySuppressed" & MED_EARNINGS != "NULL")
+
+scorecard_df$CONTROL <- recode_factor(scorecard_df$CONTROL,
+                                         "1" = "Public",
+                                         "2" = "PrivateNonProfit",
+                                         "3" = "PrivateForProfit")
 scorecard_df$LOCALE <- as.numeric(scorecard_df$LOCALE)
 scorecard_df$HBCU <- as.numeric(scorecard_df$HBCU)
 scorecard_df$MENONLY <- as.numeric(scorecard_df$MENONLY)

@@ -1,0 +1,109 @@
+---
+title: "Analysis"
+author: "Aemro Chanie"
+date: "2022-08-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries}
+# Load the appropriate libraries that can be used to analyse the data 
+library(tidyverse)
+library(ggplot2)
+library(vtable)
+library(fixest)
+library(jtools)
+
+
+```
+# Introduction 
+
+Research Question: The College Scorecard was released at the start of September 2015. Among colleges that predominantly grant bachelor’s degrees, did the release of the Scorecard shift student interest to high-earnings colleges relative to low-earnings ones (as proxied by Google searches for keywords associated with those colleges)?
+
+To answer this question, I have to pull Google trend data, school scorecard data and the ID_name link data and clean the data. Finally merge and selects columns that i feel are relevant for the data analysis portion of this study. corecard data set will include only primarily bachelor's degree granting schools. Other NULL values or cells with unavailable data are also filtered out. Variables are characterized accordingly. The variables filtered and included from the Scorecard data are: unitid and opeid (for joining to Google data), STABBR (state), PREDDEG (primarily bachelor's degree schools), LOCALE (size of local area surrounding school; i.e. city, suburban, rural), CONTROL (public vs. private vs. non-profit), HBCU (historically black colleges), MENONLY, WOMENONLY, PBI (predominantly black institute), HSI (hispanic serving institution), and MED_EARNINGS (median earnings of students post grad).
+
+```{r load clean_df}
+clean_df <- read_csv("../raw_data/clean_df.csv")
+
+```
+
+Below I used ggplot to determine if my data is normally distributed. As you can see, it looks like there are some problems in my data given the shape. One reason might be there is an outliers data that affected the relationship or the relationship is not linear. To minimize the skewness of the graph, using the log linear function is been used below. 
+
+```{r }
+ggplot(clean_df, aes(x= MED_EARNINGS)) + geom_density()
+
+```
+
+```{r }
+# log of the median income was taken to avoid right skewness of the data on the graph. Though the skewness has been removed, there seem to be an outier data that still cause heteroskedasticity 
+
+ggplot(clean_df, aes(x= log(MED_EARNINGS))) + geom_density()
+
+```
+
+
+Before running regressions, we must first distinguish our cutoff for "High-Earning" vs. "Low-Earning" colleges. To do this, I used the median income from the given data which turns out to be $41800. So my analysis moving forward will have the logic that schools with median earnings for alumni 10 years after graduation above $41,800 will be considered as ‘high earning schools’ while those below $41,800 will be considered as ‘low earning schools’.
+
+```{r}
+#  
+median(clean_df$`MED_EARNINGS`)
+
+final_df <- clean_df %>%
+  mutate(high_earning = MED_EARNINGS > 41800)
+
+```
+
+
+
+
+```{r }
+m1 <- feols(index_std ~ after_2015 * high_earning, data = final_df)
+
+etable(m1, vcov = 'hetero')
+```
+The model in m1 shows that low income earning schools saw an increase in average search rankings of 0.044 standard deviations following the introduction of the scorecard. On the other hand High-earning schools showing a decrease by 0.27 standard deviation in search rankings post scorecard. Both low and high earning schools standard deviations are statistically significant at 1% which means if the null hypothesis were true, we will find results similar to these in 0.01% of the samples. The combination of after scorecard and higher earning schools also display a negative standard deviation which signify that the more prospective students were likely looking for low income earning schools which might be attributed to so many factors that would affect students desition in searching for schools.
+
+```{r  }
+m2 <- feols(index_std ~ after_2015*high_earning + Season, data = final_df)
+m3 <- feols(index_std ~ after_2015*high_earning | Season, data = final_df)
+m4 <- feols(index_std ~ after_2015*high_earning | month, data = final_df)
+# Regressions side by side
+etable(m1, m2, m3, m4)
+```
+The regression models two and three utilize season as a control, being different in the linear model versus fixed effects. Model four uses fixed effects on the month.
+
+The second and third regression models indicate a 0.04 decrease in the standardized searches for high-earning colleges compared to low-earning colleges, showing significance at the 95% level with our fixed effects model. The r squared value has also improved in models 2 and 3. Model 4 indicated the same effect from the scorecard, but produced a much better r squared value.
+```{r}
+# Additional regression controls (showed no impact)
+m5 <- feols(index_std ~ after_2015*high_earning + HBCU, data = final_df)
+m6 <- feols(index_std ~ after_2015*high_earning + MENONLY, data = final_df)
+m7 <- feols(index_std ~ after_2015*high_earning + LOCALE, data = final_df)
+etable(m5, m6, m7)
+# Season seems to be the only variable that we should control for to capture the effect.
+```
+The additional controls added in models 5, 6, and 7, have no strong influence on the model and do not improve it.
+
+```{r Graphs}
+# Consolidation of standardized index scores to be one record per month
+final_df <- final_df %>%
+  group_by(month, high_earning) %>% 
+  summarize(index_std = mean(index_std, na.rm = TRUE))
+ggplot() + 
+  geom_line(data = final_df, aes(x = month, y = index_std, color = high_earning)) +
+  scale_x_date(breaks = scales :: breaks_pretty(13)) +
+  geom_vline(xintercept = as.Date("2015-09-01")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  labs(title = "Google Index Score Averages Per Month", 
+       subtitle = "Distinguished by High Earning vs. Low Earning University", 
+       x = "Date", y = "Mean Standard Deviation of Index Score")
+
+```
+
+
+## Conclusion
+ 
+ As it was diplayed in the model the controlling for the season variable does not change much on the standard deviation thus we can fairly conclude that students interest was low income earning schools as compareed to the high income earning schools. 
